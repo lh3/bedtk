@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <getopt.h>
 #include "cgranges.h"
+#include "ketopt.h"
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
@@ -54,16 +55,17 @@ int main_cov(int argc, char *argv[])
 {
 	cgranges_t *cr;
 	gzFile fp;
+	ketopt_t o = KETOPT_INIT;
 	kstream_t *ks;
 	kstring_t str = {0,0,0};
 	int64_t m_b = 0, *b = 0, n_b;
 	int c, cnt_only = 0, contained = 0;
 
-	while ((c = getopt(argc, argv, "cC")) >= 0)
+	while ((c = ketopt(&o, argc, argv, 1, "cC", 0)) >= 0)
 		if (c == 'c') cnt_only = 1;
 		else if (c == 'C') contained = 1;
 
-	if (argc - optind < 2) {
+	if (argc - o.ind < 2) {
 		printf("Usage: bedtk cov [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
 		printf("  -c       only count; no breadth of depth\n");
@@ -71,11 +73,11 @@ int main_cov(int argc, char *argv[])
 		return 0;
 	}
 
-	cr = read_bed3(argv[optind]);
+	cr = read_bed3(argv[o.ind]);
 	assert(cr);
 	cr_index(cr);
 
-	fp = gzopen(argv[optind + 1], "r");
+	fp = gzopen(argv[o.ind + 1], "r");
 	assert(fp);
 	ks = ks_init(fp);
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {

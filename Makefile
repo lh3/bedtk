@@ -30,5 +30,5 @@ depend:
 
 # DO NOT DELETE
 
-bedtk.o: cgranges.h kseq.h
+bedtk.o: cgranges.h ketopt.h kseq.h
 cgranges.o: cgranges.h khash.h
