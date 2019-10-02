@@ -36,7 +36,7 @@ typedef struct {    // a contig
 
 typedef struct {    // an interval
 	uint64_t x;     // prior to cr_index(), x = ctg_id<<32|start_pos; after: x = start_pos<<32|end_pos
-	uint32_t y:31, rev:1;
+	uint32_t y:31, rev:1; // rev is NOT used
 	int32_t label;  // NOT used
 } cr_intv_t;
 
@@ -70,6 +70,7 @@ cr_intv_t *cr_add(cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int32
 
 // Sort and index intervals
 void cr_index(cgranges_t *cr);
+void cr_index2(cgranges_t *cr, int32_t merge);
 
 int64_t cr_overlap(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);
 int64_t cr_contain(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);
@@ -79,6 +80,11 @@ int32_t cr_add_ctg(cgranges_t *cr, const char *ctg, int32_t len);
 
 // Get the contig ID given its name
 int32_t cr_get_ctg(const cgranges_t *cr, const char *ctg);
+
+// lower level
+int32_t cr_is_sorted(const cgranges_t *cr);
+void cr_sort(cgranges_t *cr);
+int64_t cr_merge_pre_index(cgranges_t *cr); // NB: call *after* cr_sort() but *before* cr_index_prepare()
 
 #ifdef __cplusplus
 }

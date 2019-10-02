@@ -107,6 +107,16 @@ void cr_destroy(cgranges_t *cr)
 	free(cr);
 }
 
+static char *cr_strdup(const char *src)
+{
+	int32_t len;
+	char *dst;
+	len = strlen(src);
+	dst = (char*)malloc(len + 1);
+	memcpy(dst, src, len + 1);
+	return dst;
+}
+
 int32_t cr_add_ctg(cgranges_t *cr, const char *ctg, int32_t len)
 {
 	int absent;
@@ -119,7 +129,7 @@ int32_t cr_add_ctg(cgranges_t *cr, const char *ctg, int32_t len)
 			EXPAND(cr->ctg, cr->m_ctg);
 		kh_val(h, k) = cr->n_ctg;
 		p = &cr->ctg[cr->n_ctg++];
-		p->name = strdup(ctg);
+		p->name = cr_strdup(ctg);
 		kh_key(h, k) = p->name;
 		p->len = len;
 		p->n = 0, p->off = -1;
@@ -169,14 +179,46 @@ int32_t cr_is_sorted(const cgranges_t *cr)
 	return (i == cr->n_r);
 }
 
+int64_t cr_merge_pre_index(cgranges_t *cr) // NB: call *before* cr_index_prepare()
+{
+	int64_t i, n, n_less = 0;
+	uint64_t st, en;
+	if (cr->n_r == 0) return 0;
+	st = en = 0;
+	for (i = n = 0; i < cr->n_r; ++i) {
+		uint64_t s, e;
+		cr_intv_t *r = &cr->r[i];
+		s = r->x, e = (r->x&0xffffffff00000000ULL) | r->y;
+		if (s <= en) {
+			en = en > e? en : e;
+		} else {
+			if (en > st) {
+				if (n != i) {
+					cr_intv_t *p = &cr->r[n++];
+					p->x = st, p->y = (uint32_t)en, p->rev = 0, p->label = -1;
+				} else ++n;
+			}
+			st = s, en = e;
+		}
+	}
+	if (n != i) {
+		cr_intv_t *p = &cr->r[n++];
+		p->x = st, p->y = (uint32_t)en, p->rev = 0, p->label = -1;
+	} else ++n;
+	n_less = cr->n_r - n;
+	cr->n_r = n;
+	return n_less;
+}
+
 /************
  * Indexing *
  ************/
 
-void cr_index_prepare(cgranges_t *cr)
+void cr_index_prepare(cgranges_t *cr, int32_t merge)
 {
 	int64_t i, st;
 	if (!cr_is_sorted(cr)) cr_sort(cr);
+	if (merge) cr_merge_pre_index(cr);
 	for (st = 0, i = 1; i <= cr->n_r; ++i) {
 		if (i == cr->n_r || cr->r[i].x>>32 != cr->r[st].x>>32) {
 			int32_t ctg = cr->r[st].x>>32;
@@ -215,13 +257,15 @@ int32_t cr_index1(cr_intv_t *a, int64_t n)
 	return k - 1;
 }
 
-void cr_index(cgranges_t *cr)
+void cr_index2(cgranges_t *cr, int32_t merge)
 {
 	int32_t i;
-	cr_index_prepare(cr);
+	cr_index_prepare(cr, merge);
 	for (i = 0; i < cr->n_ctg; ++i)
 		cr->ctg[i].root_k = cr_index1(&cr->r[cr->ctg[i].off], cr->ctg[i].n);
 }
+
+void cr_index(cgranges_t *cr) { return cr_index2(cr, 0); }
 
 /*********
  * Query *

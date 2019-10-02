@@ -35,8 +35,11 @@ static cgranges_t *read_bed3(const char *fn)
 	kstream_t *ks;
 	kstring_t str = {0,0,0};
 	int32_t k = 0;
-	if ((fp = gzopen(fn, "r")) == 0)
+	fp = fn && strcmp(fn, "-")? gzopen(fn, "r") : gzdopen(0, "r");
+	if (fp == 0) {
+		fprintf(stderr, "ERROR: failed to open the input file\n");
 		return 0;
+	}
 	ks = ks_init(fp);
 	cr = cr_init();
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
@@ -61,9 +64,10 @@ int main_cov(int argc, char *argv[])
 	int64_t m_b = 0, *b = 0, n_b;
 	int c, cnt_only = 0, contained = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "cC", 0)) >= 0)
+	while ((c = ketopt(&o, argc, argv, 1, "cC", 0)) >= 0) {
 		if (c == 'c') cnt_only = 1;
 		else if (c == 'C') contained = 1;
+	}
 
 	if (argc - o.ind < 2) {
 		printf("Usage: bedtk cov [options] <loaded.bed> <streamed.bed>\n");
@@ -115,11 +119,46 @@ int main_cov(int argc, char *argv[])
 	return 0;
 }
 
+int main_merge(int argc, char *argv[])
+{
+	cgranges_t *cr;
+	ketopt_t o = KETOPT_INIT;
+	int c, assume_srt = 0;
+
+	while ((c = ketopt(&o, argc, argv, 1, "s", 0)) >= 0) {
+		if (c == 's') assume_srt = 1;
+	}
+
+	if (argc - o.ind < 1) {
+		printf("Usage: bedtk merge [options] <in.bed>\n");
+		printf("Options:\n");
+		printf("  -s       assume the input is sorted (NOT implemented yet)\n");
+		return 0;
+	}
+
+	if (assume_srt) {
+		fprintf(stderr, "ERROR: NOT implemented yet\n");
+	} else {
+		int64_t i;
+		cr = read_bed3(argv[o.ind]);
+		assert(cr);
+		if (!cr_is_sorted(cr)) cr_sort(cr);
+		cr_merge_pre_index(cr);
+		for (i = 0; i < cr->n_r; ++i) {
+			const cr_intv_t *r = &cr->r[i];
+			printf("%s\t%d\t%d\n", cr->ctg[r->x>>32].name, (int32_t)r->x, r->y);
+		}
+		cr_destroy(cr);
+	}
+
+	return 0;
+}
 static int usage(FILE *fp)
 {
 	fprintf(fp, "Usage: bedtk <command> <arguments>\n");
 	fprintf(fp, "Command:\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
+	fprintf(fp, "  merge     merge overlapping regions\n");
 	fprintf(fp, "  version   version number\n");
 	return fp == stdout? 0 : 1;
 }
@@ -128,6 +167,7 @@ int main(int argc, char *argv[])
 {
 	if (argc == 1) return usage(stdout);
 	if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
+	else if (strcmp(argv[1], "merge") == 0) return main_merge(argc-1, argv+1);
 	else if (strcmp(argv[1], "version") == 0) {
 		puts(BEDTK_VERSION);
 		return 0;
