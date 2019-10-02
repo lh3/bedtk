@@ -153,12 +153,63 @@ int main_merge(int argc, char *argv[])
 
 	return 0;
 }
+
+int main_sum(int argc, char *argv[])
+{
+	cgranges_t *cr;
+	ketopt_t o = KETOPT_INIT;
+	int c, merge = 0;
+	int64_t sum = 0;
+
+	while ((c = ketopt(&o, argc, argv, 1, "m", 0)) >= 0) {
+		if (c == 'm') merge = 1;
+	}
+
+	if (argc - o.ind < 1) {
+		printf("Usage: bedtk sum [options] <in.bed>\n");
+		printf("Options:\n");
+		printf("  -m       merge overlapping regions\n");
+		return 0;
+	}
+
+	if (!merge) {
+		gzFile fp;
+		kstream_t *ks;
+		kstring_t str = {0,0,0};
+		fp = strcmp(argv[o.ind], "-")? gzopen(argv[o.ind], "r") : gzdopen(0, "r");
+		assert(fp);
+		ks = ks_init(fp);
+		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
+			int32_t st1, en1;
+			char *ctg;
+			ctg = parse_bed3(str.s, &st1, &en1);
+			if (ctg == 0) continue;
+			sum += en1 - st1;
+		}
+		free(str.s);
+		ks_destroy(ks);
+		gzclose(fp);
+	} else {
+		int64_t i;
+		cr = read_bed3(argv[o.ind]);
+		assert(cr);
+		if (!cr_is_sorted(cr)) cr_sort(cr);
+		cr_merge_pre_index(cr);
+		for (i = 0; i < cr->n_r; ++i)
+			sum += cr->r[i].y - (int32_t)cr->r[i].x;
+		cr_destroy(cr);
+	}
+	printf("%lld\n", (long long)sum);
+	return 0;
+}
+
 static int usage(FILE *fp)
 {
 	fprintf(fp, "Usage: bedtk <command> <arguments>\n");
 	fprintf(fp, "Command:\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
-	fprintf(fp, "  merge     merge overlapping regions\n");
+	fprintf(fp, "  merge     merge overlapping regions (bedtools merge)\n");
+	fprintf(fp, "  sum       total region length\n");
 	fprintf(fp, "  version   version number\n");
 	return fp == stdout? 0 : 1;
 }
@@ -168,6 +219,7 @@ int main(int argc, char *argv[])
 	if (argc == 1) return usage(stdout);
 	if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
 	else if (strcmp(argv[1], "merge") == 0) return main_merge(argc-1, argv+1);
+	else if (strcmp(argv[1], "sum") == 0) return main_sum(argc-1, argv+1);
 	else if (strcmp(argv[1], "version") == 0) {
 		puts(BEDTK_VERSION);
 		return 0;
