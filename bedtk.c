@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0"
+#define BEDTK_VERSION "0.0-r6-dirty"
 
 /***************
  * BED3 parser *
@@ -113,15 +113,17 @@ int main_isec(int argc, char *argv[])
 	cgranges_t *cr;
 	ketopt_t o = KETOPT_INIT;
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, merge = 0;
+	int c, merge = 0, full = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "m", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "mf", 0)) >= 0) {
 		if (c == 'm') merge = 1;
+		else if (c == 'f') full = 1;
 	}
 
 	if (argc - o.ind < 2) {
 		printf("Usage: bedtk isec [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
+		printf("  -f      print overlapping records in the second BED\n");
 		printf("  -m      merge overlapping regions in the second BED\n");
 		return 1;
 	}
@@ -165,22 +167,30 @@ int main_isec(int argc, char *argv[])
 		ks = ks_init(fp);
 		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
 			int32_t st1, en1, cov_st = 0, cov_en = 0;
-			char *ctg;
+			char *ctg, *rest;
 			int64_t j;
-			ctg = parse_bed3(str.s, &st1, &en1);
+			ctg = parse_bed3b(str.s, &st1, &en1, &rest);
 			if (ctg == 0) continue;
 			n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
-			for (j = 0; j < n_b; ++j) {
-				cr_intv_t *r = &cr->r[b[j]];
-				int32_t st0 = cr_st(r), en0 = cr_en(r);
-				if (st0 < st1) st0 = st1;
-				if (en0 > en1) en0 = en1;
-				if (st0 > cov_en) {
-					if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
-					cov_st = st0, cov_en = en0;
-				} else cov_en = cov_en > en0? cov_en : en0;
+			if (full) {
+				if (n_b) {
+					printf("%s\t%d\t%d", ctg, st1, en1);
+					if (rest) puts(rest);
+					else putchar('\n');
+				}
+			} else {
+				for (j = 0; j < n_b; ++j) {
+					cr_intv_t *r = &cr->r[b[j]];
+					int32_t st0 = cr_st(r), en0 = cr_en(r);
+					if (st0 < st1) st0 = st1;
+					if (en0 > en1) en0 = en1;
+					if (st0 > cov_en) {
+						if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+						cov_st = st0, cov_en = en0;
+					} else cov_en = cov_en > en0? cov_en : en0;
+				}
+				if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
 			}
-			if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
 		}
 		free(str.s);
 		ks_destroy(ks);
