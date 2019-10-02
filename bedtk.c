@@ -1,13 +1,13 @@
 #include <zlib.h>
 #include <stdio.h>
 #include <assert.h>
-#include <getopt.h>
+#include <unistd.h>
 #include "cgranges.h"
 #include "ketopt.h"
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r6-dirty"
+#define BEDTK_VERSION "0.0-r8-dirty"
 
 /***************
  * BED3 parser *
@@ -120,7 +120,7 @@ int main_isec(int argc, char *argv[])
 		else if (c == 'f') full = 1;
 	}
 
-	if (argc - o.ind < 2) {
+	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
 		printf("Usage: bedtk isec [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
 		printf("  -f      print overlapping records in the second BED\n");
@@ -135,7 +135,7 @@ int main_isec(int argc, char *argv[])
 	if (merge) {
 		int64_t i;
 		cgranges_t *qr;
-		qr = read_bed3(argv[o.ind + 1]);
+		qr = read_bed3(o.ind+1 < argc? argv[o.ind + 1] : 0);
 		assert(qr);
 		if (!cr_is_sorted(qr)) cr_sort(qr);
 		cr_merge_pre_index(qr);
@@ -162,7 +162,7 @@ int main_isec(int argc, char *argv[])
 		gzFile fp;
 		kstream_t *ks;
 		kstring_t str = {0,0,0};
-		fp = strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
+		fp = o.ind+1 < argc && strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
 		assert(fp);
 		ks = ks_init(fp);
 		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
@@ -217,7 +217,7 @@ int main_cov(int argc, char *argv[])
 		else if (c == 'C') contained = 1;
 	}
 
-	if (argc - o.ind < 2) {
+	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
 		printf("Usage: bedtk cov [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
 		printf("  -c       only count; no breadth of depth\n");
@@ -229,7 +229,7 @@ int main_cov(int argc, char *argv[])
 	assert(cr);
 	cr_index(cr);
 
-	fp = gzopen(argv[o.ind + 1], "r");
+	fp = o.ind+1 < argc && strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
 	assert(fp);
 	ks = ks_init(fp);
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
@@ -277,7 +277,7 @@ int main_merge(int argc, char *argv[])
 		if (c == 's') assume_srt = 1;
 	}
 
-	if (argc - o.ind < 1) {
+	if (argc - o.ind < 1 && isatty(0)) {
 		printf("Usage: bedtk merge [options] <in.bed>\n");
 		printf("Options:\n");
 		printf("  -s       assume the input is sorted (NOT implemented yet)\n");
@@ -288,7 +288,7 @@ int main_merge(int argc, char *argv[])
 		fprintf(stderr, "ERROR: NOT implemented yet\n");
 	} else {
 		int64_t i;
-		cr = read_bed3(argv[o.ind]);
+		cr = read_bed3(o.ind < argc? argv[o.ind] : 0);
 		assert(cr);
 		if (!cr_is_sorted(cr)) cr_sort(cr);
 		cr_merge_pre_index(cr);
@@ -313,7 +313,7 @@ int main_sum(int argc, char *argv[])
 		if (c == 'm') merge = 1;
 	}
 
-	if (argc - o.ind < 1) {
+	if (argc - o.ind < 1 && isatty(0)) {
 		printf("Usage: bedtk sum [options] <in.bed>\n");
 		printf("Options:\n");
 		printf("  -m       merge overlapping regions\n");
@@ -324,7 +324,7 @@ int main_sum(int argc, char *argv[])
 		gzFile fp;
 		kstream_t *ks;
 		kstring_t str = {0,0,0};
-		fp = strcmp(argv[o.ind], "-")? gzopen(argv[o.ind], "r") : gzdopen(0, "r");
+		fp = o.ind < argc && strcmp(argv[o.ind], "-")? gzopen(argv[o.ind], "r") : gzdopen(0, "r");
 		assert(fp);
 		ks = ks_init(fp);
 		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
@@ -339,7 +339,7 @@ int main_sum(int argc, char *argv[])
 		gzclose(fp);
 	} else {
 		int64_t i;
-		cr = read_bed3(argv[o.ind]);
+		cr = read_bed3(o.ind < argc? argv[o.ind] : 0);
 		assert(cr);
 		if (!cr_is_sorted(cr)) cr_sort(cr);
 		cr_merge_pre_index(cr);
@@ -362,12 +362,12 @@ int main_sort(int argc, char *argv[])
 	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
 	}
 
-	if (argc - o.ind < 1) {
+	if (argc - o.ind < 1 && isatty(0)) {
 		printf("Usage: bedtk sort <in.bed>\n");
 		return 1;
 	}
 
-	cr = read_bed3b(argv[o.ind], &rest);
+	cr = read_bed3b(o.ind < argc? argv[o.ind] : 0, &rest);
 	assert(cr);
 	if (!cr_is_sorted(cr)) cr_sort(cr);
 	for (i = 0; i < cr->n_r; ++i) {
