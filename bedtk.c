@@ -9,32 +9,51 @@ KSTREAM_INIT(gzFile, gzread, 0x10000)
 
 #define BEDTK_VERSION "0.0"
 
-static char *parse_bed3(char *s, int32_t *st_, int32_t *en_)
+typedef struct {
+	int32_t l;
+	char *s;
+} bed_rest1_t;
+
+typedef struct {
+	int64_t n, m;
+	bed_rest1_t *a;
+} bed_rest_t;
+
+static char *parse_bed3b(char *s, int32_t *st_, int32_t *en_, char **r)
 {
 	char *p, *q, *ctg = 0;
 	int32_t i, st = -1, en = -1;
+	if (r) *r = 0;
 	for (i = 0, p = q = s;; ++q) {
 		if (*q == '\t' || *q == '\0') {
 			int c = *q;
 			*q = 0;
 			if (i == 0) ctg = p;
 			else if (i == 1) st = atol(p);
-			else if (i == 2) en = atol(p);
+			else if (i == 2) {
+				en = atol(p);
+				if (r && c != 0) *r = q, *q = c;
+			}
 			++i, p = q + 1;
-			if (c == '\0') break;
+			if (i == 3 || c == '\0') break;
 		}
 	}
 	*st_ = st, *en_ = en;
 	return i >= 3? ctg : 0;
 }
 
-static cgranges_t *read_bed3(const char *fn)
+static char *parse_bed3(char *s, int32_t *st_, int32_t *en_)
+{
+	return parse_bed3b(s, st_, en_, 0);
+}
+
+static cgranges_t *read_bed3b(const char *fn, bed_rest_t *r)
 {
 	gzFile fp;
 	cgranges_t *cr;
 	kstream_t *ks;
 	kstring_t str = {0,0,0};
-	int32_t k = 0;
+	int64_t k = 0;
 	fp = fn && strcmp(fn, "-")? gzopen(fn, "r") : gzdopen(0, "r");
 	if (fp == 0) {
 		fprintf(stderr, "ERROR: failed to open the input file\n");
@@ -42,16 +61,43 @@ static cgranges_t *read_bed3(const char *fn)
 	}
 	ks = ks_init(fp);
 	cr = cr_init();
+	if (r) r->m = r->n = 0, r->a = 0;
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
-		char *ctg;
+		char *ctg, *rest;
 		int32_t st, en;
-		ctg = parse_bed3(str.s, &st, &en);
-		if (ctg) cr_add(cr, ctg, st, en, k++);
+		ctg = parse_bed3b(str.s, &st, &en, &rest);
+		if (ctg) {
+			cr_add(cr, ctg, st, en, k);
+			if (r) {
+				bed_rest1_t *p;
+				if (r->n == r->m) {
+					int64_t old_m = r->m;
+					r->m = r->m? r->m<<1 : 16;
+					r->a = (bed_rest1_t*)realloc(r->a, r->m * sizeof(bed_rest1_t));
+					memset(&r->a[old_m], 0, (r->m - old_m) * sizeof(bed_rest1_t));
+				}
+				p = &r->a[r->n++];
+				p->l = rest? str.l - (rest - str.s) : 0;
+				if (rest) {
+					p->s = (char*)malloc(p->l + 1);
+					memcpy(p->s, rest, p->l);
+					p->s[p->l] = 0;
+				}
+			}
+			++k;
+		}
 	}
+	if (k > INT32_MAX)
+		fprintf(stderr, "WARNING: more than %d records; some functionality may not work!\n", INT32_MAX);
 	free(str.s);
 	ks_destroy(ks);
 	gzclose(fp);
 	return cr;
+}
+
+static cgranges_t *read_bed3(const char *fn)
+{
+	return read_bed3b(fn, 0);
 }
 
 int main_cov(int argc, char *argv[])
@@ -74,7 +120,7 @@ int main_cov(int argc, char *argv[])
 		printf("Options:\n");
 		printf("  -c       only count; no breadth of depth\n");
 		printf("  -C       containment only\n");
-		return 0;
+		return 1;
 	}
 
 	cr = read_bed3(argv[o.ind]);
@@ -133,7 +179,7 @@ int main_merge(int argc, char *argv[])
 		printf("Usage: bedtk merge [options] <in.bed>\n");
 		printf("Options:\n");
 		printf("  -s       assume the input is sorted (NOT implemented yet)\n");
-		return 0;
+		return 1;
 	}
 
 	if (assume_srt) {
@@ -169,7 +215,7 @@ int main_sum(int argc, char *argv[])
 		printf("Usage: bedtk sum [options] <in.bed>\n");
 		printf("Options:\n");
 		printf("  -m       merge overlapping regions\n");
-		return 0;
+		return 1;
 	}
 
 	if (!merge) {
@@ -203,12 +249,45 @@ int main_sum(int argc, char *argv[])
 	return 0;
 }
 
+int main_sort(int argc, char *argv[])
+{
+	cgranges_t *cr;
+	ketopt_t o = KETOPT_INIT;
+	int c;
+	int64_t i;
+	bed_rest_t rest;
+
+	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
+	}
+
+	if (argc - o.ind < 1) {
+		printf("Usage: bedtk sort <in.bed>\n");
+		return 1;
+	}
+
+	cr = read_bed3b(argv[o.ind], &rest);
+	assert(cr);
+	if (!cr_is_sorted(cr)) cr_sort(cr);
+	for (i = 0; i < cr->n_r; ++i) {
+		const cr_intv_t *r = &cr->r[i];
+		printf("%s\t%d\t%d", cr->ctg[r->x>>32].name, (int32_t)r->x, r->y);
+		if (rest.a[r->label].l) puts(rest.a[r->label].s);
+		else putchar('\n');
+	}
+	cr_destroy(cr);
+
+	for (i = 0; i < rest.n; ++i) free(rest.a[i].s);
+	free(rest.a);
+	return 0;
+}
+
 static int usage(FILE *fp)
 {
 	fprintf(fp, "Usage: bedtk <command> <arguments>\n");
 	fprintf(fp, "Command:\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
 	fprintf(fp, "  merge     merge overlapping regions (bedtools merge)\n");
+	fprintf(fp, "  sort      sort regions (bedtools sort)\n");
 	fprintf(fp, "  sum       total region length\n");
 	fprintf(fp, "  version   version number\n");
 	return fp == stdout? 0 : 1;
@@ -220,6 +299,7 @@ int main(int argc, char *argv[])
 	if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
 	else if (strcmp(argv[1], "merge") == 0) return main_merge(argc-1, argv+1);
 	else if (strcmp(argv[1], "sum") == 0) return main_sum(argc-1, argv+1);
+	else if (strcmp(argv[1], "sort") == 0) return main_sort(argc-1, argv+1);
 	else if (strcmp(argv[1], "version") == 0) {
 		puts(BEDTK_VERSION);
 		return 0;

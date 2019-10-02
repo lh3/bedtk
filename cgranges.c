@@ -107,7 +107,7 @@ void cr_destroy(cgranges_t *cr)
 	free(cr);
 }
 
-static char *cr_strdup(const char *src)
+char *cr_strdup(const char *src)
 {
 	int32_t len;
 	char *dst;
