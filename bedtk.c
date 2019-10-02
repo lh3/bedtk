@@ -9,6 +9,10 @@ KSTREAM_INIT(gzFile, gzread, 0x10000)
 
 #define BEDTK_VERSION "0.0"
 
+/***************
+ * BED3 parser *
+ ***************/
+
 typedef struct {
 	int32_t l;
 	char *s;
@@ -98,6 +102,94 @@ static cgranges_t *read_bed3b(const char *fn, bed_rest_t *r)
 static cgranges_t *read_bed3(const char *fn)
 {
 	return read_bed3b(fn, 0);
+}
+
+/*********
+ * Tools *
+ *********/
+
+int main_isec(int argc, char *argv[])
+{
+	cgranges_t *cr;
+	ketopt_t o = KETOPT_INIT;
+	int64_t m_b = 0, *b = 0, n_b;
+	int c, merge = 0;
+
+	while ((c = ketopt(&o, argc, argv, 1, "m", 0)) >= 0) {
+		if (c == 'm') merge = 1;
+	}
+
+	if (argc - o.ind < 2) {
+		printf("Usage: bedtk isec [options] <loaded.bed> <streamed.bed>\n");
+		printf("Options:\n");
+		printf("  -m      merge overlapping regions in the second BED\n");
+		return 1;
+	}
+
+	cr = read_bed3(argv[o.ind]);
+	assert(cr);
+	cr_index2(cr, 1);
+
+	if (merge) {
+		int64_t i;
+		cgranges_t *qr;
+		qr = read_bed3(argv[o.ind + 1]);
+		assert(qr);
+		if (!cr_is_sorted(qr)) cr_sort(qr);
+		cr_merge_pre_index(qr);
+		for (i = 0; i < qr->n_r; ++i) {
+			cr_intv_t *q = &qr->r[i];
+			int32_t st1 = (int32_t)q->x, en1 = q->y, cov_st = 0, cov_en = 0;
+			int64_t j;
+			char *ctg = qr->ctg[q->x>>32].name;
+			n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
+			for (j = 0; j < n_b; ++j) {
+				cr_intv_t *r = &cr->r[b[j]];
+				int32_t st0 = cr_st(r), en0 = cr_en(r);
+				if (st0 < st1) st0 = st1;
+				if (en0 > en1) en0 = en1;
+				if (st0 > cov_en) {
+					if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+					cov_st = st0, cov_en = en0;
+				} else cov_en = cov_en > en0? cov_en : en0;
+			}
+			if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+		}
+		cr_destroy(qr);
+	} else {
+		gzFile fp;
+		kstream_t *ks;
+		kstring_t str = {0,0,0};
+		fp = strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
+		assert(fp);
+		ks = ks_init(fp);
+		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
+			int32_t st1, en1, cov_st = 0, cov_en = 0;
+			char *ctg;
+			int64_t j;
+			ctg = parse_bed3(str.s, &st1, &en1);
+			if (ctg == 0) continue;
+			n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
+			for (j = 0; j < n_b; ++j) {
+				cr_intv_t *r = &cr->r[b[j]];
+				int32_t st0 = cr_st(r), en0 = cr_en(r);
+				if (st0 < st1) st0 = st1;
+				if (en0 > en1) en0 = en1;
+				if (st0 > cov_en) {
+					if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+					cov_st = st0, cov_en = en0;
+				} else cov_en = cov_en > en0? cov_en : en0;
+			}
+			if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+		}
+		free(str.s);
+		ks_destroy(ks);
+		gzclose(fp);
+	}
+
+	free(b);
+	cr_destroy(cr);
+	return 0;
 }
 
 int main_cov(int argc, char *argv[])
@@ -281,10 +373,15 @@ int main_sort(int argc, char *argv[])
 	return 0;
 }
 
+/*****************
+ * Main function *
+ *****************/
+
 static int usage(FILE *fp)
 {
 	fprintf(fp, "Usage: bedtk <command> <arguments>\n");
 	fprintf(fp, "Command:\n");
+	fprintf(fp, "  isec      intersection (bedtools intersect)\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
 	fprintf(fp, "  merge     merge overlapping regions (bedtools merge)\n");
 	fprintf(fp, "  sort      sort regions (bedtools sort)\n");
@@ -296,7 +393,8 @@ static int usage(FILE *fp)
 int main(int argc, char *argv[])
 {
 	if (argc == 1) return usage(stdout);
-	if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
+	if (strcmp(argv[1], "isec") == 0) return main_isec(argc-1, argv+1);
+	else if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
 	else if (strcmp(argv[1], "merge") == 0) return main_merge(argc-1, argv+1);
 	else if (strcmp(argv[1], "sum") == 0) return main_sum(argc-1, argv+1);
 	else if (strcmp(argv[1], "sort") == 0) return main_sort(argc-1, argv+1);
