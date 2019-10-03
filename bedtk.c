@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r8-dirty"
+#define BEDTK_VERSION "0.0-r13-dirty"
 
 /***************
  * BED3 parser *
@@ -267,6 +267,57 @@ int main_cov(int argc, char *argv[])
 	return 0;
 }
 
+int main_sub(int argc, char *argv[])
+{
+	cgranges_t *cr;
+	gzFile fp;
+	ketopt_t o = KETOPT_INIT;
+	kstream_t *ks;
+	kstring_t str = {0,0,0};
+	int64_t m_b = 0, *b = 0, n_b;
+	int c;
+
+	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
+	}
+
+	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
+		printf("Usage: bedtk sub <loaded.bed> <streamed.bed>\n");
+		return 1;
+	}
+
+	cr = read_bed3(argv[o.ind]);
+	assert(cr);
+	cr_index2(cr, 1);
+
+	fp = o.ind+1 < argc && strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
+	assert(fp);
+	ks = ks_init(fp);
+	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
+		int32_t st1, en1, x;
+		char *ctg;
+		int64_t j;
+		ctg = parse_bed3(str.s, &st1, &en1);
+		if (ctg == 0) continue;
+		n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
+		for (j = 0, x = st1; j < n_b; ++j) {
+			cr_intv_t *r = &cr->r[b[j]];
+			int32_t st0 = cr_st(r), en0 = cr_en(r);
+			if (st0 < st1) st0 = st1;
+			if (en0 > en1) en0 = en1;
+			if (st0 > x) printf("%s\t%d\t%d\n", ctg, x, st0);
+			x = en0;
+		}
+		if (x < en1) printf("%s\t%d\t%d\n", ctg, x, en1);
+	}
+	free(b);
+	free(str.s);
+	ks_destroy(ks);
+	gzclose(fp);
+
+	cr_destroy(cr);
+	return 0;
+}
+
 int main_merge(int argc, char *argv[])
 {
 	cgranges_t *cr;
@@ -393,6 +444,7 @@ static int usage(FILE *fp)
 	fprintf(fp, "Command:\n");
 	fprintf(fp, "  isec      intersection (bedtools intersect)\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
+	fprintf(fp, "  sub       subtraction (bedtools subtract)\n");
 	fprintf(fp, "  merge     merge overlapping regions (bedtools merge)\n");
 	fprintf(fp, "  sort      sort regions (bedtools sort)\n");
 	fprintf(fp, "  sum       total region length\n");
@@ -405,6 +457,7 @@ int main(int argc, char *argv[])
 	if (argc == 1) return usage(stdout);
 	if (strcmp(argv[1], "isec") == 0) return main_isec(argc-1, argv+1);
 	else if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
+	else if (strcmp(argv[1], "sub") == 0) return main_sub(argc-1, argv+1);
 	else if (strcmp(argv[1], "merge") == 0) return main_merge(argc-1, argv+1);
 	else if (strcmp(argv[1], "sum") == 0) return main_sum(argc-1, argv+1);
 	else if (strcmp(argv[1], "sort") == 0) return main_sort(argc-1, argv+1);
