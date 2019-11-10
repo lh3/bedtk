@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r18-dirty"
+#define BEDTK_VERSION "0.0-r19-dirty"
 
 /***************
  * BED3 parser *
@@ -163,26 +163,70 @@ static cgranges_t *read_bed3(const char *fn)
 
 int main_isec(int argc, char *argv[])
 {
+	cgranges_t *cr, *qr;
+	ketopt_t o = KETOPT_INIT;
+	int64_t i, m_b = 0, *b = 0, n_b;
+	int c;
+
+	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
+	}
+
+	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
+		printf("Usage: bedtk isec <A.bed> <B.bed>\n");
+		return 1;
+	}
+
+	cr = read_bed3(argv[o.ind]);
+	assert(cr);
+	cr_index2(cr, 1);
+
+	qr = read_bed3(o.ind + 1 < argc? argv[o.ind + 1] : 0);
+	assert(qr);
+	if (!cr_is_sorted(qr)) cr_sort(qr);
+	cr_merge_pre_index(qr);
+	for (i = 0; i < qr->n_r; ++i) {
+		cr_intv_t *q = &qr->r[i];
+		int32_t st1 = (int32_t)q->x, en1 = q->y, cov_st = 0, cov_en = 0;
+		int64_t j;
+		char *ctg = qr->ctg[q->x>>32].name;
+		n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
+		for (j = 0; j < n_b; ++j) {
+			cr_intv_t *r = &cr->r[b[j]];
+			int32_t st0 = cr_st(r), en0 = cr_en(r);
+			if (st0 < st1) st0 = st1;
+			if (en0 > en1) en0 = en1;
+			if (st0 > cov_en) {
+				if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+				cov_st = st0, cov_en = en0;
+			} else cov_en = cov_en > en0? cov_en : en0;
+		}
+		if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+	}
+	free(b);
+	cr_destroy(qr);
+	cr_destroy(cr);
+	return 0;
+}
+
+int main_flt(int argc, char *argv[])
+{
 	cgranges_t *cr;
 	ketopt_t o = KETOPT_INIT;
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, win = 0, merge = 0, full = 0, vcf_in = 0, contained = 0;
+	int c, win = 0, vcf_in = 0, contained = 0;
+	gzFile fp;
+	kstream_t *ks;
+	kstring_t str = {0,0,0};
 
-	while ((c = ketopt(&o, argc, argv, 1, "mfcw:C", 0)) >= 0) {
-		if (c == 'm') merge = 1;
-		else if (c == 'f') full = 1;
-		else if (c == 'c') vcf_in = 1;
+	while ((c = ketopt(&o, argc, argv, 1, "cw:C", 0)) >= 0) {
+		if (c == 'c') vcf_in = 1;
 		else if (c == 'C') contained = 1;
 		else if (c == 'w') win = atol(o.arg);
 	}
-	if (vcf_in || win > 0) full = 1, merge = 0;
-	if (merge) full = 0;
 
 	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
-		printf("Usage: bedtk isec [options] <loaded.bed> <streamed.bed>\n");
+		printf("Usage: bedtk flt [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
-		printf("  -f      print overlapping records in <streamed.bed>\n");
-		printf("  -m      merge overlapping regions in <streamed.bed> (clear -f)\n");
 		printf("  -c      the second input is VCF (force -f and clear -m)\n");
 		printf("  -C      print records contained in the union of <loaded.bed>\n");
 		printf("  -w INT  window size (force -f and clear -m) [0]\n");
@@ -195,78 +239,32 @@ int main_isec(int argc, char *argv[])
 	assert(cr);
 	cr_index2(cr, 1);
 
-	if (merge) {
-		int64_t i;
-		cgranges_t *qr;
-		qr = read_bed3(o.ind+1 < argc? argv[o.ind + 1] : 0);
-		assert(qr);
-		if (!cr_is_sorted(qr)) cr_sort(qr);
-		cr_merge_pre_index(qr);
-		for (i = 0; i < qr->n_r; ++i) {
-			cr_intv_t *q = &qr->r[i];
-			int32_t st1 = (int32_t)q->x, en1 = q->y, cov_st = 0, cov_en = 0;
-			int64_t j;
-			char *ctg = qr->ctg[q->x>>32].name;
-			n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
-			for (j = 0; j < n_b; ++j) {
-				cr_intv_t *r = &cr->r[b[j]];
-				int32_t st0 = cr_st(r), en0 = cr_en(r);
-				if (st0 < st1) st0 = st1;
-				if (en0 > en1) en0 = en1;
-				if (st0 > cov_en) {
-					if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
-					cov_st = st0, cov_en = en0;
-				} else cov_en = cov_en > en0? cov_en : en0;
-			}
-			if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
-		}
-		cr_destroy(qr);
-	} else {
-		gzFile fp;
-		kstream_t *ks;
-		kstring_t str = {0,0,0};
-		fp = o.ind+1 < argc && strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
-		assert(fp);
-		ks = ks_init(fp);
-		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
-			int32_t st1, en1, st2, en2, cov_st = 0, cov_en = 0;
-			char *ctg, *rest;
-			int64_t j;
+	fp = o.ind + 1 < argc && strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
+	assert(fp);
+	ks = ks_init(fp);
+	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
+		int32_t st1, en1, st2, en2;
+		char *ctg, *rest;
+		if (vcf_in) {
+			ctg = parse_vcf(str.s, &st1, &en1, &rest);
+			if (ctg == 0 && rest && rest[0] == '#')
+				puts(rest);
+		} else ctg = parse_bed3b(str.s, &st1, &en1, &rest);
+		if (ctg == 0) continue;
+		st2 = st1 - win, en2 = en1 + win;
+		if (st2 < 0) st2 = 0;
+		if (contained)
+			n_b = cr_contain(cr, ctg, st2, en2, &b, &m_b);
+		else
+			n_b = cr_overlap(cr, ctg, st2, en2, &b, &m_b);
+		if (n_b) {
 			if (vcf_in) {
-				ctg = parse_vcf(str.s, &st1, &en1, &rest);
-				if (ctg == 0 && rest && rest[0] == '#')
-					puts(rest);
-			} else ctg = parse_bed3b(str.s, &st1, &en1, &rest);
-			if (ctg == 0) continue;
-			st2 = st1 - win, en2 = en1 + win;
-			if (st2 < 0) st2 = 0;
-			if (contained)
-				n_b = cr_contain(cr, ctg, st2, en2, &b, &m_b);
-			else
-				n_b = cr_overlap(cr, ctg, st2, en2, &b, &m_b);
-			if (full) {
-				if (n_b) {
-					if (vcf_in) {
-						printf("%s\t", ctg);
-						puts(rest);
-					} else {
-						printf("%s\t%d\t%d", ctg, st1, en1);
-						if (rest) puts(rest);
-						else putchar('\n');
-					}
-				}
+				printf("%s\t", ctg);
+				puts(rest);
 			} else {
-				for (j = 0; j < n_b; ++j) {
-					cr_intv_t *r = &cr->r[b[j]];
-					int32_t st0 = cr_st(r), en0 = cr_en(r);
-					if (st0 < st1) st0 = st1;
-					if (en0 > en1) en0 = en1;
-					if (st0 > cov_en) {
-						if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
-						cov_st = st0, cov_en = en0;
-					} else cov_en = cov_en > en0? cov_en : en0;
-				}
-				if (cov_en > cov_st) printf("%s\t%d\t%d\n", ctg, cov_st, cov_en);
+				printf("%s\t%d\t%d", ctg, st1, en1);
+				if (rest) puts(rest);
+				else putchar('\n');
 			}
 		}
 		free(str.s);
@@ -524,6 +522,7 @@ static int usage(FILE *fp)
 	fprintf(fp, "Usage: bedtk <command> <arguments>\n");
 	fprintf(fp, "Command:\n");
 	fprintf(fp, "  isec      intersection (bedtools intersect)\n");
+	fprintf(fp, "  flt       filter BED/VCF file (bedtools intersect)\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
 	fprintf(fp, "  sub       subtraction (bedtools subtract)\n");
 	fprintf(fp, "  merge     merge overlapping regions (bedtools merge)\n");
@@ -537,6 +536,7 @@ int main(int argc, char *argv[])
 {
 	if (argc == 1) return usage(stdout);
 	if (strcmp(argv[1], "isec") == 0) return main_isec(argc-1, argv+1);
+	else if (strcmp(argv[1], "flt") == 0) return main_flt(argc-1, argv+1);
 	else if (strcmp(argv[1], "cov") == 0) return main_cov(argc-1, argv+1);
 	else if (strcmp(argv[1], "sub") == 0) return main_sub(argc-1, argv+1);
 	else if (strcmp(argv[1], "merge") == 0) return main_merge(argc-1, argv+1);
