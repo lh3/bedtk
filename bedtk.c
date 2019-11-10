@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r19-dirty"
+#define BEDTK_VERSION "0.0-r20-dirty"
 
 /***************
  * BED3 parser *
@@ -167,20 +167,24 @@ int main_isec(int argc, char *argv[])
 	ketopt_t o = KETOPT_INIT;
 	int64_t i, m_b = 0, *b = 0, n_b;
 	int c;
+	char *fn_order = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "s:", 0)) >= 0) {
+		if (c == 's') fn_order = o.arg;
 	}
 
 	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
-		printf("Usage: bedtk isec <A.bed> <B.bed>\n");
+		printf("Usage: bedtk isec [options] <A.bed> <B.bed>\n");
+		printf("Options:\n");
+		printf("  -s FILE   list of contig IDs to specify the output order []\n");
 		return 1;
 	}
 
-	cr = read_bed3(argv[o.ind]);
+	cr = read_bed3b(argv[o.ind], 0, fn_order);
 	assert(cr);
 	cr_index2(cr, 1);
 
-	qr = read_bed3(o.ind + 1 < argc? argv[o.ind + 1] : 0);
+	qr = read_bed3b(o.ind + 1 < argc? argv[o.ind + 1] : 0, 0, fn_order);
 	assert(qr);
 	if (!cr_is_sorted(qr)) cr_sort(qr);
 	cr_merge_pre_index(qr);
@@ -267,10 +271,10 @@ int main_flt(int argc, char *argv[])
 				else putchar('\n');
 			}
 		}
-		free(str.s);
-		ks_destroy(ks);
-		gzclose(fp);
 	}
+	free(str.s);
+	ks_destroy(ks);
+	gzclose(fp);
 
 	free(b);
 	cr_destroy(cr);
