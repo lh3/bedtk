@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r15-dirty"
+#define BEDTK_VERSION "0.0-r16-dirty"
 
 /***************
  * BED3 parser *
@@ -345,16 +345,17 @@ int main_sub(int argc, char *argv[])
 	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
 	}
 
-	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
-		printf("Usage: bedtk sub <loaded.bed> <streamed.bed>\n");
+	if (argc - o.ind < 2) {
+		printf("Usage: bedtk sub <minuend.bed> <subtrahend.bed>\n");
+		printf("Note: <subtrahend.bed> is loaded into memory.\n");
 		return 1;
 	}
 
-	cr = read_bed3(argv[o.ind]);
+	cr = read_bed3(argv[o.ind + 1]);
 	assert(cr);
 	cr_index2(cr, 1);
 
-	fp = o.ind+1 < argc && strcmp(argv[o.ind + 1], "-")? gzopen(argv[o.ind + 1], "r") : gzdopen(0, "r");
+	fp = strcmp(argv[o.ind], "-")? gzopen(argv[o.ind], "r") : gzdopen(0, "r");
 	assert(fp);
 	ks = ks_init(fp);
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
