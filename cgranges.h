@@ -67,6 +67,7 @@ void cr_destroy(cgranges_t *cr);
 
 // Add an interval
 cr_intv_t *cr_add(cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int32_t label_int);
+int32_t cr_add_ctg(cgranges_t *cr, const char *ctg, int32_t len);
 
 // Sort and index intervals
 void cr_index(cgranges_t *cr);

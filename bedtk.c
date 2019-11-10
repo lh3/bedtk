@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r13-dirty"
+#define BEDTK_VERSION "0.0-r14-dirty"
 
 /***************
  * BED3 parser *
@@ -51,20 +51,37 @@ static char *parse_bed3(char *s, int32_t *st_, int32_t *en_)
 	return parse_bed3b(s, st_, en_, 0);
 }
 
-static cgranges_t *read_bed3b(const char *fn, bed_rest_t *r)
+static cgranges_t *read_bed3b(const char *fn, bed_rest_t *r, const char *fn_order)
 {
 	gzFile fp;
 	cgranges_t *cr;
 	kstream_t *ks;
 	kstring_t str = {0,0,0};
 	int64_t k = 0;
+
 	fp = fn && strcmp(fn, "-")? gzopen(fn, "r") : gzdopen(0, "r");
 	if (fp == 0) {
 		fprintf(stderr, "ERROR: failed to open the input file\n");
 		return 0;
 	}
-	ks = ks_init(fp);
 	cr = cr_init();
+	if (fn_order) {
+		gzFile fp;
+		if ((fp = gzopen(fn_order, "r")) == 0) {
+			fprintf(stderr, "ERROR: failed to open the list file\n");
+			return 0;
+		}
+		ks = ks_init(fp);
+		while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
+			char *p;
+			for (p = str.s; *p && !isspace(*p); ++p);
+			*p = 0;
+			cr_add_ctg(cr, str.s, 0);
+		}
+		ks_destroy(ks);
+		gzclose(fp);
+	}
+	ks = ks_init(fp);
 	if (r) r->m = r->n = 0, r->a = 0;
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
 		char *ctg, *rest;
@@ -101,7 +118,7 @@ static cgranges_t *read_bed3b(const char *fn, bed_rest_t *r)
 
 static cgranges_t *read_bed3(const char *fn)
 {
-	return read_bed3b(fn, 0);
+	return read_bed3b(fn, 0, 0);
 }
 
 /*********
@@ -409,16 +426,19 @@ int main_sort(int argc, char *argv[])
 	int c;
 	int64_t i;
 	bed_rest_t rest;
+	char *fn_order = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
-	}
+	while ((c = ketopt(&o, argc, argv, 1, "s:", 0)) >= 0)
+		if (c == 's') fn_order = o.arg;
 
 	if (argc - o.ind < 1 && isatty(0)) {
-		printf("Usage: bedtk sort <in.bed>\n");
+		printf("Usage: bedtk sort [options] <in.bed>\n");
+		printf("Options:\n");
+		printf("  -s FILE   list of contig IDs to specify the order []\n");
 		return 1;
 	}
 
-	cr = read_bed3b(o.ind < argc? argv[o.ind] : 0, &rest);
+	cr = read_bed3b(o.ind < argc? argv[o.ind] : 0, &rest, fn_order);
 	assert(cr);
 	if (!cr_is_sorted(cr)) cr_sort(cr);
 	for (i = 0; i < cr->n_r; ++i) {
