@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r14-dirty"
+#define BEDTK_VERSION "0.0-r15-dirty"
 
 /***************
  * BED3 parser *
@@ -22,6 +22,42 @@ typedef struct {
 	int64_t n, m;
 	bed_rest1_t *a;
 } bed_rest_t;
+
+static char *parse_vcf(char *s, int32_t *st_, int32_t *en_, char **r)
+{
+	char *p, *q, *ctg = 0;
+	int32_t i, st = -1, en = -1;
+	*r = 0;
+	if (s[0] == '#') {
+		*r = s;
+		return 0;
+	}
+	for (i = 0, p = q = s;; ++q) {
+		if (*q == '\t' || *q == '\0') {
+			int c = *q;
+			*q = 0;
+			if (i == 0) {
+				ctg = p;
+				*r = q + 1;
+			} else if (i == 1) st = atol(p) - 1;
+			else if (i == 3) en = st + (q - p);
+			else if (i == 7) {
+				char *s = 0;
+				if (strncmp(p, "END=", 4) == 0) s = p + 1;
+				else {
+					s = strstr(p, ";END=");
+					if (s) s += 5;
+				}
+				en = strtol(s, &s, 10);
+			}
+			if (i != 0) *q = c;
+			++i, p = q + 1;
+			if (i == 7 || c == '\0') break;
+		}
+	}
+	*st_ = st, *en_ = en;
+	return i >= 7? ctg : 0;
+}
 
 static char *parse_bed3b(char *s, int32_t *st_, int32_t *en_, char **r)
 {
@@ -130,18 +166,21 @@ int main_isec(int argc, char *argv[])
 	cgranges_t *cr;
 	ketopt_t o = KETOPT_INIT;
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, merge = 0, full = 0;
+	int c, merge = 0, full = 0, vcf_in = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "mf", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "mfc", 0)) >= 0) {
 		if (c == 'm') merge = 1;
 		else if (c == 'f') full = 1;
+		else if (c == 'c') vcf_in = 1;
 	}
+	if (vcf_in) full = 1, merge = 0;
 
 	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
 		printf("Usage: bedtk isec [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
 		printf("  -f      print overlapping records in the second BED\n");
 		printf("  -m      merge overlapping regions in the second BED\n");
+		printf("  -c      the second input is VCF (force -f and clear -m)\n");
 		return 1;
 	}
 
@@ -186,14 +225,23 @@ int main_isec(int argc, char *argv[])
 			int32_t st1, en1, cov_st = 0, cov_en = 0;
 			char *ctg, *rest;
 			int64_t j;
-			ctg = parse_bed3b(str.s, &st1, &en1, &rest);
+			if (vcf_in) {
+				ctg = parse_vcf(str.s, &st1, &en1, &rest);
+				if (ctg == 0 && rest && rest[0] == '#')
+					puts(rest);
+			} else ctg = parse_bed3b(str.s, &st1, &en1, &rest);
 			if (ctg == 0) continue;
 			n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
 			if (full) {
 				if (n_b) {
-					printf("%s\t%d\t%d", ctg, st1, en1);
-					if (rest) puts(rest);
-					else putchar('\n');
+					if (vcf_in) {
+						printf("%s\t", ctg);
+						puts(rest);
+					} else {
+						printf("%s\t%d\t%d", ctg, st1, en1);
+						if (rest) puts(rest);
+						else putchar('\n');
+					}
 				}
 			} else {
 				for (j = 0; j < n_b; ++j) {
