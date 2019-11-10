@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r17-dirty"
+#define BEDTK_VERSION "0.0-r18-dirty"
 
 /***************
  * BED3 parser *
@@ -166,12 +166,13 @@ int main_isec(int argc, char *argv[])
 	cgranges_t *cr;
 	ketopt_t o = KETOPT_INIT;
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, win = 0, merge = 0, full = 0, vcf_in = 0;
+	int c, win = 0, merge = 0, full = 0, vcf_in = 0, contained = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "mfcw:", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "mfcw:C", 0)) >= 0) {
 		if (c == 'm') merge = 1;
 		else if (c == 'f') full = 1;
 		else if (c == 'c') vcf_in = 1;
+		else if (c == 'C') contained = 1;
 		else if (c == 'w') win = atol(o.arg);
 	}
 	if (vcf_in || win > 0) full = 1, merge = 0;
@@ -183,6 +184,7 @@ int main_isec(int argc, char *argv[])
 		printf("  -f      print overlapping records in <streamed.bed>\n");
 		printf("  -m      merge overlapping regions in <streamed.bed> (clear -f)\n");
 		printf("  -c      the second input is VCF (force -f and clear -m)\n");
+		printf("  -C      print records contained in the union of <loaded.bed>\n");
 		printf("  -w INT  window size (force -f and clear -m) [0]\n");
 		printf("Note: by default, isec prints intersections non-overlapping on each record\n");
 		printf("  in <streamed.bed>. With -m, all output intervals are non-overlapping.\n");
@@ -238,7 +240,10 @@ int main_isec(int argc, char *argv[])
 			if (ctg == 0) continue;
 			st2 = st1 - win, en2 = en1 + win;
 			if (st2 < 0) st2 = 0;
-			n_b = cr_overlap(cr, ctg, st2, en2, &b, &m_b);
+			if (contained)
+				n_b = cr_contain(cr, ctg, st2, en2, &b, &m_b);
+			else
+				n_b = cr_overlap(cr, ctg, st2, en2, &b, &m_b);
 			if (full) {
 				if (n_b) {
 					if (vcf_in) {
