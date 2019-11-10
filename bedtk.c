@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r20-dirty"
+#define BEDTK_VERSION "0.0-r22-dirty"
 
 /***************
  * BED3 parser *
@@ -217,14 +217,15 @@ int main_flt(int argc, char *argv[])
 	cgranges_t *cr;
 	ketopt_t o = KETOPT_INIT;
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, win = 0, vcf_in = 0, contained = 0;
+	int c, win = 0, vcf_in = 0, test_con = 0, non_sat = 0;
 	gzFile fp;
 	kstream_t *ks;
 	kstring_t str = {0,0,0};
 
-	while ((c = ketopt(&o, argc, argv, 1, "cw:C", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "cw:Cv", 0)) >= 0) {
 		if (c == 'c') vcf_in = 1;
-		else if (c == 'C') contained = 1;
+		else if (c == 'C') test_con = 1;
+		else if (c == 'v') non_sat = 1;
 		else if (c == 'w') win = atol(o.arg);
 	}
 
@@ -233,6 +234,7 @@ int main_flt(int argc, char *argv[])
 		printf("Options:\n");
 		printf("  -c      the second input is VCF (force -f and clear -m)\n");
 		printf("  -C      print records contained in the union of <loaded.bed>\n");
+		printf("  -v      print non-satisfying records\n");
 		printf("  -w INT  window size (force -f and clear -m) [0]\n");
 		printf("Note: by default, isec prints intersections non-overlapping on each record\n");
 		printf("  in <streamed.bed>. With -m, all output intervals are non-overlapping.\n");
@@ -247,7 +249,8 @@ int main_flt(int argc, char *argv[])
 	assert(fp);
 	ks = ks_init(fp);
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
-		int32_t st1, en1, st2, en2;
+		int32_t st1, en1, st2, en2, sat = 0;
+		int64_t i;
 		char *ctg, *rest;
 		if (vcf_in) {
 			ctg = parse_vcf(str.s, &st1, &en1, &rest);
@@ -257,11 +260,17 @@ int main_flt(int argc, char *argv[])
 		if (ctg == 0) continue;
 		st2 = st1 - win, en2 = en1 + win;
 		if (st2 < 0) st2 = 0;
-		if (contained)
-			n_b = cr_contain(cr, ctg, st2, en2, &b, &m_b);
-		else
-			n_b = cr_overlap(cr, ctg, st2, en2, &b, &m_b);
-		if (n_b) {
+		n_b = cr_overlap(cr, ctg, st2, en2, &b, &m_b);
+		if (test_con) {
+			for (i = 0, sat = 0; i < n_b; ++i) {
+				cr_intv_t *r = &cr->r[b[i]];
+				if (cr_st(r) <= st2 && en2 <= cr_en(r)) {
+					sat = 1;
+					break;
+				}
+			}
+		} else sat = (n_b > 0);
+		if ((sat && !non_sat) || (!sat && non_sat)) {
 			if (vcf_in) {
 				printf("%s\t", ctg);
 				puts(rest);

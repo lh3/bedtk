@@ -6,7 +6,8 @@ git clone https://github.com/lh3/bedtk
 cd bedtk && make
 # filter a BED or VCF file
 ./bedtk flt test/test-anno.bed.gz test/test-iso.bed.gz
-./bedtk flt -cw100 test/test-anno.bed.gz test/test-sub.vcf.gz
+./bedtk flt -v test/test-anno.bed.gz test/test-iso.bed.gz      # non-overlapping lines
+./bedtk flt -cw100 test/test-anno.bed.gz test/test-sub.vcf.gz  # with a window
 # intersect (no sorting needed; overlapping records allowed)
 ./bedtk isec test/test-anno.bed.gz test/test-iso.bed.gz
 # compute the breadth of coverage
