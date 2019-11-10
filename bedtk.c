@@ -535,7 +535,7 @@ static int usage(FILE *fp)
 	fprintf(fp, "Usage: bedtk <command> <arguments>\n");
 	fprintf(fp, "Command:\n");
 	fprintf(fp, "  isec      intersection (bedtools intersect)\n");
-	fprintf(fp, "  flt       filter BED/VCF file (bedtools intersect)\n");
+	fprintf(fp, "  flt       filter BED/VCF file (bedtools intersect/window)\n");
 	fprintf(fp, "  cov       breadth of coverage (bedtools coverage)\n");
 	fprintf(fp, "  sub       subtraction (bedtools subtract)\n");
 	fprintf(fp, "  merge     merge overlapping regions (bedtools merge)\n");
