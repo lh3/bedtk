@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r22-dirty"
+#define BEDTK_VERSION "0.0-r23-dirty"
 
 /***************
  * BED3 parser *
@@ -236,8 +236,6 @@ int main_flt(int argc, char *argv[])
 		printf("  -C      print records contained in the union of <loaded.bed>\n");
 		printf("  -v      print non-satisfying records\n");
 		printf("  -w INT  window size (force -f and clear -m) [0]\n");
-		printf("Note: by default, isec prints intersections non-overlapping on each record\n");
-		printf("  in <streamed.bed>. With -m, all output intervals are non-overlapping.\n");
 		return 1;
 	}
 
