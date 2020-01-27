@@ -7,7 +7,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r23-dirty"
+#define BEDTK_VERSION "0.0-r24-dirty"
 
 /***************
  * BED3 parser *
@@ -235,7 +235,7 @@ int main_flt(int argc, char *argv[])
 		printf("  -c      the second input is VCF (force -f and clear -m)\n");
 		printf("  -C      print records contained in the union of <loaded.bed>\n");
 		printf("  -v      print non-satisfying records\n");
-		printf("  -w INT  window size (force -f and clear -m) [0]\n");
+		printf("  -w INT  window size [0]\n");
 		return 1;
 	}
 
@@ -361,9 +361,10 @@ int main_sub(int argc, char *argv[])
 	kstream_t *ks;
 	kstring_t str = {0,0,0};
 	int64_t m_b = 0, *b = 0, n_b;
-	int c;
+	int32_t c, min_len = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "l:", 0)) >= 0) {
+		if (c == 'l') min_len = atoi(o.arg);
 	}
 
 	if (argc - o.ind < 2) {
@@ -391,10 +392,10 @@ int main_sub(int argc, char *argv[])
 			int32_t st0 = cr_st(r), en0 = cr_en(r);
 			if (st0 < st1) st0 = st1;
 			if (en0 > en1) en0 = en1;
-			if (st0 > x) printf("%s\t%d\t%d\n", ctg, x, st0);
+			if (st0 > x && st0 - x >= min_len) printf("%s\t%d\t%d\n", ctg, x, st0);
 			x = en0;
 		}
-		if (x < en1) printf("%s\t%d\t%d\n", ctg, x, en1);
+		if (x < en1 && en1 - x >= min_len) printf("%s\t%d\t%d\n", ctg, x, en1);
 	}
 	free(b);
 	free(str.s);
