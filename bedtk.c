@@ -1,5 +1,6 @@
 #include <zlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <assert.h>
 #include <unistd.h>
 #include "cgranges.h"
@@ -7,7 +8,68 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r24-dirty"
+#define BEDTK_VERSION "0.0-r25-dirty"
+
+/*****************
+ * Faster printf *
+ *****************/
+
+static inline void str_enlarge(kstring_t *s, int l)
+{
+	if (s->l + l + 1 > s->m) {
+		s->m = s->l + l + 1;
+		kroundup32(s->m);
+		s->s = (char*)realloc(s->s, s->m);
+	}
+}
+
+static inline void str_copy(kstring_t *s, const char *st, const char *en)
+{
+	str_enlarge(s, en - st);
+	memcpy(&s->s[s->l], st, en - st);
+	s->l += en - st;
+}
+
+static void mm_sprintf_lite(kstring_t *s, const char *fmt, ...)
+{
+	char buf[16]; // for integer to string conversion
+	const char *p, *q;
+	va_list ap;
+	va_start(ap, fmt);
+	for (q = p = fmt; *p; ++p) {
+		if (*p == '%') {
+			if (p > q) str_copy(s, q, p);
+			++p;
+			if (*p == 'd') {
+				int c, i, l = 0;
+				unsigned int x;
+				c = va_arg(ap, int);
+				x = c >= 0? c : -c;
+				do { buf[l++] = x%10 + '0'; x /= 10; } while (x > 0);
+				if (c < 0) buf[l++] = '-';
+				str_enlarge(s, l);
+				for (i = l - 1; i >= 0; --i) s->s[s->l++] = buf[i];
+			} else if (*p == 'u') {
+				int i, l = 0;
+				uint32_t x;
+				x = va_arg(ap, uint32_t);
+				do { buf[l++] = x%10 + '0'; x /= 10; } while (x > 0);
+				str_enlarge(s, l);
+				for (i = l - 1; i >= 0; --i) s->s[s->l++] = buf[i];
+			} else if (*p == 's') {
+				char *r = va_arg(ap, char*);
+				str_copy(s, r, r + strlen(r));
+			} else if (*p == 'c') {
+				str_enlarge(s, 1);
+				s->s[s->l++] = va_arg(ap, int);
+			} else abort();
+			q = p + 1;
+		}
+	}
+	if (p > q) str_copy(s, q, p);
+	va_end(ap);
+	s->s[s->l] = 0;
+}
 
 /***************
  * BED3 parser *
@@ -220,7 +282,7 @@ int main_flt(int argc, char *argv[])
 	int c, win = 0, vcf_in = 0, test_con = 0, non_sat = 0;
 	gzFile fp;
 	kstream_t *ks;
-	kstring_t str = {0,0,0};
+	kstring_t str = {0,0,0}, out = {0,0,0};
 
 	while ((c = ketopt(&o, argc, argv, 1, "cw:Cv", 0)) >= 0) {
 		if (c == 'c') vcf_in = 1;
@@ -268,12 +330,15 @@ int main_flt(int argc, char *argv[])
 				}
 			}
 		} else sat = (n_b > 0);
+		out.l = 0;
 		if ((sat && !non_sat) || (!sat && non_sat)) {
 			if (vcf_in) {
-				printf("%s\t", ctg);
+				mm_sprintf_lite(&out, "%s\t", ctg);
+				fwrite(out.s, 1, out.l, stdout);
 				puts(rest);
 			} else {
-				printf("%s\t%d\t%d", ctg, st1, en1);
+				mm_sprintf_lite(&out, "%s\t%d\t%d", ctg, st1, en1);
+				fwrite(out.s, 1, out.l, stdout);
 				if (rest) puts(rest);
 				else putchar('\n');
 			}
@@ -294,7 +359,7 @@ int main_cov(int argc, char *argv[])
 	gzFile fp;
 	ketopt_t o = KETOPT_INIT;
 	kstream_t *ks;
-	kstring_t str = {0,0,0};
+	kstring_t str = {0,0,0}, out = {0,0,0};
 	int64_t m_b = 0, *b = 0, n_b;
 	int c, cnt_only = 0, contained = 0;
 
@@ -328,6 +393,7 @@ int main_cov(int argc, char *argv[])
 			n_b = cr_contain(cr, ctg, st1, en1, &b, &m_b);
 		else
 			n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
+		out.l = 0;
 		if (!cnt_only) {
 			for (j = 0; j < n_b; ++j) {
 				cr_intv_t *r = &cr->r[b[j]];
@@ -341,8 +407,11 @@ int main_cov(int argc, char *argv[])
 				++cnt;
 			}
 			cov += cov_en - cov_st;
-			printf("%s\t%d\t%d\t%ld\t%ld\n", ctg, st1, en1, (long)cnt, (long)cov);
-		} else printf("%s\t%d\t%d\t%ld\n", ctg, st1, en1, (long)n_b);
+			mm_sprintf_lite(&out, "%s\t%d\t%d\t%d\t%d\n", ctg, st1, en1, (int)cnt, (int)cov);
+		} else {
+			mm_sprintf_lite(&out, "%s\t%d\t%d\t%d\n", ctg, st1, en1, (int)n_b);
+		}
+		puts(out.s);
 	}
 	free(b);
 	free(str.s);
