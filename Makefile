@@ -20,7 +20,7 @@ endif
 all:$(PROG)
 
 bedtk:$(OBJS) bedtk.o
-		$(CC) $(CFLAGS) $^ -o $@ $(LIBS)
+		$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 clean:
 		rm -fr gmon.out *.o a.out $(PROG) *~ *.a *.dSYM
