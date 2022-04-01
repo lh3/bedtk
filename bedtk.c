@@ -567,6 +567,7 @@ int main_sort(int argc, char *argv[])
 	int64_t i;
 	bed_rest_t rest;
 	char *fn_order = 0;
+	kstring_t str = {0,0,0};
 
 	while ((c = ketopt(&o, argc, argv, 1, "s:", 0)) >= 0)
 		if (c == 's') fn_order = o.arg;
@@ -583,10 +584,12 @@ int main_sort(int argc, char *argv[])
 	if (!cr_is_sorted(cr)) cr_sort(cr);
 	for (i = 0; i < cr->n_r; ++i) {
 		const cr_intv_t *r = &cr->r[i];
-		printf("%s\t%d\t%d", cr->ctg[r->x>>32].name, (int32_t)r->x, r->y);
-		if (rest.a[r->label].l) puts(rest.a[r->label].s);
-		else putchar('\n');
+		str.l = 0;
+		mm_sprintf_lite(&str, "%s\t%d\t%d", cr->ctg[r->x>>32].name, (int32_t)r->x, r->y);
+		if (rest.a[r->label].l) mm_sprintf_lite(&str, "%s", rest.a[r->label].s);
+		puts(str.s);
 	}
+	free(str.s);
 	cr_destroy(cr);
 
 	for (i = 0; i < rest.n; ++i) free(rest.a[i].s);
