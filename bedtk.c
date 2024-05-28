@@ -8,7 +8,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r25-dirty"
+#define BEDTK_VERSION "0.0-r30-dirty"
 
 /*****************
  * Faster printf *
@@ -361,11 +361,12 @@ int main_cov(int argc, char *argv[])
 	kstream_t *ks;
 	kstring_t str = {0,0,0}, out = {0,0,0};
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, cnt_only = 0, contained = 0;
+	int c, cnt_only = 0, contained = 0, print_depth = 0;
 
-	while ((c = ketopt(&o, argc, argv, 1, "cC", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "cCd", 0)) >= 0) {
 		if (c == 'c') cnt_only = 1;
 		else if (c == 'C') contained = 1;
+		else if (c == 'd') print_depth = 1;
 	}
 
 	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
@@ -386,7 +387,7 @@ int main_cov(int argc, char *argv[])
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
 		int32_t st1, en1;
 		char *ctg;
-		int64_t j, cnt = 0, cov = 0, cov_st = 0, cov_en = 0;
+		int64_t j, cnt = 0, cov = 0, cov_st = 0, cov_en = 0, depth = 0;
 		ctg = parse_bed3(str.s, &st1, &en1);
 		if (ctg == 0) continue;
 		if (contained)
@@ -404,14 +405,17 @@ int main_cov(int argc, char *argv[])
 					cov += cov_en - cov_st;
 					cov_st = st0, cov_en = en0;
 				} else cov_en = cov_en > en0? cov_en : en0;
-				++cnt;
+				++cnt, depth += en0 - st0;
 			}
 			cov += cov_en - cov_st;
-			mm_sprintf_lite(&out, "%s\t%d\t%d\t%d\t%d\n", ctg, st1, en1, (int)cnt, (int)cov);
+			if (print_depth)
+				mm_sprintf_lite(&out, "%s\t%d\t%d\t%d\t%d\t%d\n", ctg, st1, en1, (int)cnt, (int)cov, (int)depth);
+			else
+				mm_sprintf_lite(&out, "%s\t%d\t%d\t%d\t%d\n", ctg, st1, en1, (int)cnt, (int)cov);
 		} else {
 			mm_sprintf_lite(&out, "%s\t%d\t%d\t%d\n", ctg, st1, en1, (int)n_b);
 		}
-		puts(out.s);
+		fputs(out.s, stdout);
 	}
 	free(b);
 	free(str.s);

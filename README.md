@@ -29,5 +29,9 @@ is several to tens of times faster and uses a fraction of memory. It also
 provides a few convenient functions. For example, sorting, merging and
 intersection can be done in one go without Unix pipes.
 
+Bedtk is published in:
+> Li H and Rong J (2021) Bedtk: finding interval overlap with implicit interval tree.
+> *Bioinformatics*, **37**:1315-1316
+
 [bedtools]: https://github.com/arq5x/bedtools2
 [cr]: https://github.com/lh3/cgranges
