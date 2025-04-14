@@ -8,7 +8,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "0.0-r30-dirty"
+#define BEDTK_VERSION "1.0-r31"
 
 /*****************
  * Faster printf *
@@ -85,7 +85,7 @@ typedef struct {
 	bed_rest1_t *a;
 } bed_rest_t;
 
-static char *parse_vcf(char *s, int32_t *st_, int32_t *en_, char **r)
+static char *parse_vcf(char *s, int32_t *st_, int32_t *en_, char **r) // r points to the end of contig name
 {
 	char *p, *q, *ctg = 0;
 	int32_t i, st = -1, en = -1;
@@ -119,6 +119,32 @@ static char *parse_vcf(char *s, int32_t *st_, int32_t *en_, char **r)
 	}
 	*st_ = st, *en_ = en;
 	return i >= 7? ctg : 0;
+}
+
+static char *parse_paf(char *s, int32_t *st_, int32_t *en_, char **r)
+{
+	char *p, *q, *ctg = 0;
+	int32_t i, st = -1, en = -1;
+	*r = 0;
+	for (i = 0, p = q = s;; ++q) {
+		if (*q == '\t' || *q == '\0') {
+			int c = *q;
+			*q = 0;
+			if (i == 5) {
+				ctg = p;
+				*r = q + 1;
+			} else if (i == 7) {
+				st = atol(p);
+			} else if (i == 8) {
+				en = atol(p);
+			}
+			if (i != 5) *q = c;
+			++i, p = q + 1;
+			if (i == 9 || c == '\0') break;
+		}
+	}
+	*st_ = st, *en_ = en;
+	return i >= 9? ctg : 0;
 }
 
 static char *parse_bed3b(char *s, int32_t *st_, int32_t *en_, char **r)
@@ -279,13 +305,14 @@ int main_flt(int argc, char *argv[])
 	cgranges_t *cr;
 	ketopt_t o = KETOPT_INIT;
 	int64_t m_b = 0, *b = 0, n_b;
-	int c, win = 0, vcf_in = 0, test_con = 0, non_sat = 0;
+	int c, win = 0, vcf_in = 0, paf_in = 0, test_con = 0, non_sat = 0;
 	gzFile fp;
 	kstream_t *ks;
 	kstring_t str = {0,0,0}, out = {0,0,0};
 
-	while ((c = ketopt(&o, argc, argv, 1, "cw:Cv", 0)) >= 0) {
+	while ((c = ketopt(&o, argc, argv, 1, "cw:Cvp", 0)) >= 0) {
 		if (c == 'c') vcf_in = 1;
+		else if (c == 'p') paf_in = 1;
 		else if (c == 'C') test_con = 1;
 		else if (c == 'v') non_sat = 1;
 		else if (c == 'w') win = atol(o.arg);
@@ -294,10 +321,16 @@ int main_flt(int argc, char *argv[])
 	if (argc - o.ind < 1 || (argc - o.ind < 2 && isatty(0))) {
 		printf("Usage: bedtk flt [options] <loaded.bed> <streamed.bed>\n");
 		printf("Options:\n");
-		printf("  -c      the second input is VCF (force -f and clear -m)\n");
+		printf("  -c      the second input is VCF\n");
+		printf("  -p      the second input is PAF\n");
 		printf("  -C      print records contained in the union of <loaded.bed>\n");
 		printf("  -v      print non-satisfying records\n");
 		printf("  -w INT  window size [0]\n");
+		return 1;
+	}
+
+	if (vcf_in && paf_in) {
+		fprintf(stderr, "ERROR: -c and -p can't be applied at the same time\n");
 		return 1;
 	}
 
@@ -312,7 +345,9 @@ int main_flt(int argc, char *argv[])
 		int32_t st1, en1, st2, en2, sat = 0;
 		int64_t i;
 		char *ctg, *rest;
-		if (vcf_in) {
+		if (paf_in) {
+			ctg = parse_paf(str.s, &st1, &en1, &rest);
+		} else if (vcf_in) {
 			ctg = parse_vcf(str.s, &st1, &en1, &rest);
 			if (ctg == 0 && rest && rest[0] == '#')
 				puts(rest);
@@ -332,7 +367,11 @@ int main_flt(int argc, char *argv[])
 		} else sat = (n_b > 0);
 		out.l = 0;
 		if ((sat && !non_sat) || (!sat && non_sat)) {
-			if (vcf_in) {
+			if (paf_in) {
+				*(rest - 1) = '\t';
+				fwrite(str.s, 1, str.l, stdout);
+				putchar('\n');
+			} else if (vcf_in) {
 				mm_sprintf_lite(&out, "%s\t", ctg);
 				fwrite(out.s, 1, out.l, stdout);
 				puts(rest);
