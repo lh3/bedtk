@@ -8,7 +8,7 @@
 #include "kseq.h"
 KSTREAM_INIT(gzFile, gzread, 0x10000)
 
-#define BEDTK_VERSION "1.0-r31"
+#define BEDTK_VERSION "1.0-r32-dirty"
 
 /*****************
  * Faster printf *
@@ -471,7 +471,7 @@ int main_sub(int argc, char *argv[])
 	gzFile fp;
 	ketopt_t o = KETOPT_INIT;
 	kstream_t *ks;
-	kstring_t str = {0,0,0};
+	kstring_t str = {0,0,0}, out = {0,0,0};
 	int64_t m_b = 0, *b = 0, n_b;
 	int32_t c, min_len = 0;
 
@@ -494,9 +494,9 @@ int main_sub(int argc, char *argv[])
 	ks = ks_init(fp);
 	while (ks_getuntil(ks, KS_SEP_LINE, &str, 0) >= 0) {
 		int32_t st1, en1, x;
-		char *ctg;
+		char *ctg, *rest;
 		int64_t j;
-		ctg = parse_bed3(str.s, &st1, &en1);
+		ctg = parse_bed3b(str.s, &st1, &en1, &rest);
 		if (ctg == 0) continue;
 		n_b = cr_overlap(cr, ctg, st1, en1, &b, &m_b);
 		for (j = 0, x = st1; j < n_b; ++j) {
@@ -504,12 +504,23 @@ int main_sub(int argc, char *argv[])
 			int32_t st0 = cr_st(r), en0 = cr_en(r);
 			if (st0 < st1) st0 = st1;
 			if (en0 > en1) en0 = en1;
-			if (st0 > x && st0 - x >= min_len) printf("%s\t%d\t%d\n", ctg, x, st0);
+			if (st0 > x && st0 - x >= min_len) {
+				out.l = 0;
+				mm_sprintf_lite(&out, "%s\t%d\t%d", ctg, x, st0);
+				if (rest) mm_sprintf_lite(&out, "%s", rest);
+				puts(out.s);
+			}
 			x = en0;
 		}
-		if (x < en1 && en1 - x >= min_len) printf("%s\t%d\t%d\n", ctg, x, en1);
+		if (x < en1 && en1 - x >= min_len) {
+			out.l = 0;
+			mm_sprintf_lite(&out, "%s\t%d\t%d", ctg, x, en1);
+			if (rest) mm_sprintf_lite(&out, "%s", rest);
+			puts(out.s);
+		}
 	}
 	free(b);
+	free(out.s);
 	free(str.s);
 	ks_destroy(ks);
 	gzclose(fp);
